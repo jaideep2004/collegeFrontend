@@ -9,15 +9,32 @@ const API = axios.create({
 });
 
 // Function to keep backend awake
-const pingServer = () => {
-	axios.get("https://collegebackend-hz0b.onrender.com/api")
-		.then(() => console.log("Ping successful"))
-		.catch((err) => console.error("Ping failed", err));
+const pingServer = async () => {
+	try {
+		const response = await axios.get("https://collegebackend-hz0b.onrender.com/api");
+		console.log("Ping successful:", response.status);
+	} catch (error) {
+		console.error("Ping failed:", error.message);
+		// Try alternative endpoint if main one fails
+		try {
+			const altResponse = await axios.get("https://collegebackend-hz0b.onrender.com/api/public/announcements");
+			console.log("Alternative ping successful:", altResponse.status);
+		} catch (altError) {
+			console.error("Alternative ping also failed:", altError.message);
+		}
+	}
 };
 
-// Ping every 14 minutes (840000 milliseconds)
-setInterval(pingServer, 840000);
+// Initial ping when the app starts
+pingServer();
 
+// Ping every 14 minutes (840000 milliseconds)
+const pingInterval = setInterval(pingServer, 840000);
+
+// Clean up interval when the app unmounts
+window.addEventListener('beforeunload', () => {
+	clearInterval(pingInterval);
+});
 
 // Add request interceptor to include auth token
 API.interceptors.request.use(
