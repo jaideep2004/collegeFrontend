@@ -8,6 +8,28 @@ const API = axios.create({
 	headers: { "Content-Type": "application/json" },
 });
 
+// Function to ping the server
+const pingServer = async () => {
+	try {
+		await axios.get("https://collegebackend-hz0b.onrender.com/api/ping");
+		console.log("Server pinged successfully");
+	} catch (error) {
+		console.error("Error pinging server:", error);
+	}
+};
+
+// Start server ping interval
+const startServerPing = () => {
+	// Ping immediately on first call
+	pingServer();
+
+	// Then ping every 14 minutes (840,000 milliseconds)
+	setInterval(pingServer, 14 * 60 * 1000);
+};
+
+// Call this function when your app initializes
+startServerPing();
+
 // Add request interceptor to include auth token
 API.interceptors.request.use(
 	(config) => {
