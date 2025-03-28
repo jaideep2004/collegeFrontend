@@ -11,13 +11,17 @@ const API = axios.create({
 // Function to keep backend awake
 const pingServer = async () => {
 	try {
-		const response = await axios.get("https://collegebackend-hz0b.onrender.com/api");
+		const response = await axios.get(
+			"https://collegebackend-hz0b.onrender.com/health"
+		);
 		console.log("Ping successful:", response.status);
 	} catch (error) {
 		console.error("Ping failed:", error.message);
 		// Try alternative endpoint if main one fails
 		try {
-			const altResponse = await axios.get("https://collegebackend-hz0b.onrender.com/api/public/announcements");
+			const altResponse = await axios.get(
+				"https://collegebackend-hz0b.onrender.com/health"
+			);
 			console.log("Alternative ping successful:", altResponse.status);
 		} catch (altError) {
 			console.error("Alternative ping also failed:", altError.message);
@@ -29,10 +33,10 @@ const pingServer = async () => {
 pingServer();
 
 // Ping every 14 minutes (840000 milliseconds)
-const pingInterval = setInterval(pingServer, 840000);
+const pingInterval = setInterval(pingServer, 820000);
 
 // Clean up interval when the app unmounts
-window.addEventListener('beforeunload', () => {
+window.addEventListener("beforeunload", () => {
 	clearInterval(pingInterval);
 });
 
