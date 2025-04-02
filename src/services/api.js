@@ -12,7 +12,7 @@ const API = axios.create({
 const pingServer = async () => {
 	try {
 		const response = await axios.get(
-			"https://collegebackend-hz0b.onrender.com/health"
+			"https://collegebackend-hz0b.onrender.com/api"
 		);
 		console.log("Ping successful:", response.status);
 	} catch (error) {
@@ -20,7 +20,7 @@ const pingServer = async () => {
 		// Try alternative endpoint if main one fails
 		try {
 			const altResponse = await axios.get(
-				"https://collegebackend-hz0b.onrender.com/health"
+				"https://collegebackend-hz0b.onrender.com/api"
 			);
 			console.log("Alternative ping successful:", altResponse.status);
 		} catch (altError) {
