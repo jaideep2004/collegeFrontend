@@ -23,6 +23,7 @@ import {
 	Chip,
 	TableHead,
 	IconButton,
+	Divider,
 } from "@mui/material";
 import api from "../services/api";
 import { showSuccessToast, showErrorToast } from "../utils/toast";
@@ -33,6 +34,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import PreviewIcon from '@mui/icons-material/Preview';
 import IDCardGenerator from "../components/IDCardGenerator";
 import CardMembershipIcon from '@mui/icons-material/CardMembership';
+import ResultsManagement from '../components/ResultsManagement';
 
 const AdminDashboard = () => {
 	const [tab, setTab] = useState(0);
@@ -94,6 +96,7 @@ const AdminDashboard = () => {
 	const [editingCourse, setEditingCourse] = useState(null);
 	const [galleryCategories, setGalleryCategories] = useState([]);
 	const [selectedGalleryCategory, setSelectedGalleryCategory] = useState("");
+	const [refreshTrigger, setRefreshTrigger] = useState(0);
 	const navigate = useNavigate();
 
 	useEffect(() => {
@@ -107,9 +110,19 @@ const AdminDashboard = () => {
 						: api.admin.getContentByType(contentType));
 					setContentList(response || []);
 					
-					// Fetch gallery categories
-					const galleryContent = await api.admin.getContentByType('gallery-category');
-					setGalleryCategories(galleryContent || []);
+					// Fetch gallery categories using the new type
+					try {
+						console.log('Fetching gallery categories');
+						const galleryCategories = await api.admin.getContentByType('gallery-category');
+						console.log('Gallery categories response:', galleryCategories);
+						
+						const categories = galleryCategories?.data || galleryCategories || [];
+						console.log('Processed gallery categories:', categories);
+						setGalleryCategories(categories);
+					} catch (error) {
+						console.error('Error fetching gallery categories:', error);
+						setGalleryCategories([]);
+					}
 				} else if (tab === 1) {
 					// Fetch students and faculty separately
 					try {
@@ -211,12 +224,32 @@ const AdminDashboard = () => {
 						console.error('Error fetching data for ID Card Generator:', error);
 						showErrorToast("Failed to fetch required data for ID cards");
 					}
+				} else if (tab === 7) {
+					// For Results tab, we need students and courses
+					try {
+						const [studentsRes, coursesRes] = await Promise.all([
+							api.admin.getAllStudents(),
+							api.admin.getCourses()
+						]);
+						
+						const students = studentsRes?.data || studentsRes || [];
+						const courses = coursesRes?.data || coursesRes || [];
+						
+						setUsers(prev => ({
+							...prev,
+							students: students
+						}));
+						setCourses(courses);
+					} catch (error) {
+						console.error('Error fetching data for Results:', error);
+						showErrorToast("Failed to fetch required data for Results");
+					}
 				}
 			} catch (error) {
 				console.error("Error fetching data:", error);
-				// Set default empty arrays on error
 				if (tab === 0) {
 					setContentList([]);
+					setGalleryCategories([]);
 				} else if (tab === 1) {
 					setUsers({ students: [], faculty: [] });
 				} else if (tab === 2) {
@@ -230,6 +263,10 @@ const AdminDashboard = () => {
 				} else if (tab === 5) {
 					// Use mock data as fallback
 					setPayments([]);
+				} else if (tab === 7) {
+					// Use mock data as fallback
+					setUsers({ students: [], faculty: [] });
+					setCourses([]);
 				}
 			} finally {
 				setLoading(false);
@@ -245,23 +282,68 @@ const AdminDashboard = () => {
 		}
 	}, [tab, contentType, contentPage]);
 
+	useEffect(() => {
+		if (tab === 0) {
+			// When refreshTrigger changes, force fetch new content
+			fetchContent();
+		}
+	}, [refreshTrigger]);
+
 	const fetchContent = async () => {
 		setContentLoading(true);
 		try {
+			console.log('Fetching content for type:', contentType, 'page:', contentPage);
+			
+			// Always use getAllContent with parameters instead of switching between APIs
 			const response = await api.admin.getAllContent({
-				type: contentType,
+				type: contentType !== 'all' ? contentType : undefined,
 				page: contentPage,
 				limit: 10
 			});
-			setContentList(response.data || []);
-			setContentPagination(response.pagination || {
+			
+			console.log('Fetch content response:', response);
+			
+			// Handle different response formats
+			let contentData = [];
+			let paginationData = {
 				total: 0,
-				page: 1,
+				page: parseInt(contentPage),
+				limit: 10,
+				pages: 0
+			};
+			
+			// Extract data from response based on format
+			if (response?.data && Array.isArray(response.data)) {
+				contentData = response.data;
+			} else if (Array.isArray(response)) {
+				contentData = response;
+			} else if (response?.data && !Array.isArray(response.data)) {
+				contentData = Array.isArray(response.data) ? response.data : [response.data];
+			}
+			
+			// Extract pagination data if available
+			if (response?.pagination) {
+				paginationData = {
+					...paginationData,
+					...response.pagination
+				};
+			}
+			
+			console.log('Processed content data:', contentData);
+			console.log('Processed pagination data:', paginationData);
+			
+			setContentList(contentData || []);
+			setContentPagination(paginationData);
+		} catch (error) {
+			console.error('Error fetching content:', error);
+			// Error is already handled by the API interceptor
+			setContentList([]);
+			setContentPagination({
+				total: 0,
+				page: parseInt(contentPage),
 				limit: 10,
 				pages: 0
 			});
-		} catch (error) {
-			// Error is already handled by the API interceptor
 		} finally {
 			setContentLoading(false);
 		}
@@ -275,14 +357,13 @@ const AdminDashboard = () => {
 
 		setLoading(true);
 		try {
-			// For gallery items, add the category
+			// For gallery items, validate category selection
 			if (contentForm.type === 'gallery') {
 				if (!selectedGalleryCategory) {
 					showErrorToast("Please select a gallery category");
 					setLoading(false);
 					return;
 				}
-				contentForm.category = selectedGalleryCategory;
 			}
 			
 			// First upload the file if there is one
@@ -292,7 +373,7 @@ const AdminDashboard = () => {
 			if (contentForm.file) {
 				const formData = new FormData();
 				formData.append('file', contentForm.file);
-				formData.append('type', 'image');
+				formData.append('type', contentForm.type);
 				
 				try {
 					console.log('Uploading content file...');
@@ -300,30 +381,53 @@ const AdminDashboard = () => {
 					console.log('File upload response:', response);
 					if (response.success) {
 						fileUrl = response.data.fileUrl;
-						thumbnailUrl = response.data.fileUrl; // Use same URL for thumbnail
-						console.log('File uploaded successfully:', fileUrl);
+						thumbnailUrl = response.data.fileUrl;
+					} else {
+						fileUrl = 'https://via.placeholder.com/800x600?text=No+Image';
+						thumbnailUrl = fileUrl;
 					}
 				} catch (error) {
 					console.error('Error uploading file:', error);
-					showErrorToast('Failed to upload file');
-					setLoading(false);
-					return;
+					fileUrl = 'https://via.placeholder.com/800x600?text=No+Image';
+					thumbnailUrl = fileUrl;
+				}
+			} else {
+				fileUrl = 'https://via.placeholder.com/800x600?text=No+Image';
+				thumbnailUrl = fileUrl;
+			}
+			
+			// Get category info if this is a gallery item
+			let categoryId = null;
+			let categoryName = '';
+			if (contentForm.type === 'gallery' && selectedGalleryCategory) {
+				const category = galleryCategories.find(cat => cat._id === selectedGalleryCategory);
+				if (category) {
+					categoryId = category._id;
+					categoryName = category.title;
 				}
 			}
 			
-			// Prepare content data
+			// Prepare content data based on type
 			const contentData = {
-				type: contentForm.type,
+				type: contentForm.type, // Use the actual type (gallery or gallery-category)
 				title: contentForm.title,
 				description: contentForm.description || '',
 				fileUrl: fileUrl,
 				thumbnailUrl: thumbnailUrl,
-				category: contentForm.category || selectedGalleryCategory || '',
 			};
+
+			// Add category reference for gallery items
+			if (contentForm.type === 'gallery' && categoryId) {
+				contentData.category = categoryId;
+				contentData.categoryName = categoryName;
+			}
 			
 			console.log('Adding content with data:', contentData);
 			
-			await api.admin.addContent(contentData);
+			// Add the content
+			const addResponse = await api.admin.addContent(contentData);
+			console.log('Content add response:', addResponse);
+			
 			showSuccessToast("Content added successfully");
 			
 			// Reset form
@@ -337,20 +441,19 @@ const AdminDashboard = () => {
 			});
 			setSelectedGalleryCategory("");
 			
-			// Refresh content list
-			const response = await (contentType === 'all' 
-				? api.admin.getAllContent()
-				: api.admin.getContentByType(contentType));
-			setContentList(response || []);
+			// Force refresh content list
+			setRefreshTrigger(prev => prev + 1);
 			
 			// Refresh gallery categories if needed
-			if (contentForm.type === 'gallery' || contentType === 'gallery' || contentType === 'all') {
-				const galleryContent = await api.admin.getContentByType('gallery');
-				setGalleryCategories(galleryContent?.filter(item => item.category === 'category') || []);
+			if (contentForm.type === 'gallery-category' || contentForm.type === 'gallery') {
+				const galleryResponse = await api.admin.getContentByType('gallery-category');
+				const categories = galleryResponse?.data || galleryResponse || [];
+				setGalleryCategories(categories);
 			}
+			
 		} catch (error) {
 			console.error('Error adding content:', error);
-			showErrorToast('Failed to add content. Please try again.');
+			showErrorToast('Failed to add content: ' + (error.response?.data?.error || error.message));
 		} finally {
 			setLoading(false);
 		}
@@ -578,28 +681,29 @@ const AdminDashboard = () => {
 			setLoading(true);
 			console.log('Deleting content with ID:', id);
 			
-			await api.admin.deleteContent(id);
+			// Use a try-catch to properly handle the API response
+			const response = await api.admin.deleteContent(id);
+			
+			// Only show success message if we get here (no error was thrown)
 			showSuccessToast('Content deleted successfully!');
 			
-			// Refresh content list
-			console.log('Refreshing content list for type:', contentType);
-			const response = await (contentType === 'all' 
-				? api.admin.getAllContent()
-				: api.admin.getContentByType(contentType));
-			console.log('Content list response:', response);
-			setContentList(response || []);
+			// Force refresh content list
+			setRefreshTrigger(prev => prev + 1);
 			
 			// Also refresh gallery categories if needed
 			if (contentType === 'gallery' || contentType === 'all') {
 				console.log('Refreshing gallery categories');
 				const galleryContent = await api.admin.getContentByType('gallery');
-				const categories = galleryContent?.filter(item => item.category === 'category') || [];
+				// Find gallery categories by checking the category field for 'category'
+				const categories = (galleryContent?.data || galleryContent || [])
+					.filter(item => item.category === 'category') || [];
 				console.log('Gallery categories:', categories);
 				setGalleryCategories(categories);
 			}
 		} catch (error) {
+			// Error toast is already shown by the API interceptor
 			console.error('Error deleting content:', error);
-			showErrorToast('Failed to delete content. Please try again.');
+			// Don't show another error toast here as the interceptor already does that
 		} finally {
 			setLoading(false);
 		}
@@ -669,17 +773,21 @@ const AdminDashboard = () => {
 			setLoading(true);
 			console.log('Deleting testimonial with ID:', id);
 			
-			await api.admin.deleteContent(id);
+			// Use a try-catch to properly handle the API response
+			const response = await api.admin.deleteContent(id);
+			
+			// Only show success message if we get here (no error was thrown)
 			showSuccessToast('Testimonial deleted successfully!');
 			
 			// Refresh testimonials list
 			console.log('Refreshing testimonials list');
-			const response = await api.admin.getContentByType('testimonial');
-			console.log('Testimonials response:', response);
-			setTestimonials(response || []);
+			const testimonialsResponse = await api.admin.getContentByType('testimonial');
+			console.log('Testimonials response:', testimonialsResponse);
+			setTestimonials(testimonialsResponse || []);
 		} catch (error) {
+			// Error toast is already shown by the API interceptor
 			console.error('Error deleting testimonial:', error);
-			showErrorToast('Failed to delete testimonial. Please try again.');
+			// Don't show another error toast here as the interceptor already does that
 		} finally {
 			setLoading(false);
 		}
@@ -738,7 +846,7 @@ const AdminDashboard = () => {
 			if (contentForm.file) {
 				const formData = new FormData();
 				formData.append('file', contentForm.file);
-				formData.append('type', 'image');
+				formData.append('type', contentForm.type === 'gallery-category' ? 'gallery' : contentForm.type);
 				
 				try {
 					console.log('Uploading content file for update...');
@@ -748,47 +856,70 @@ const AdminDashboard = () => {
 						fileUrl = response.data.fileUrl;
 						thumbnailUrl = response.data.fileUrl; // Use same URL for thumbnail
 						console.log('File uploaded successfully:', fileUrl);
+					} else {
+						// If upload not successful but we don't have a fileUrl, use placeholder
+						if (!fileUrl) {
+							console.warn('File upload was not successful and no existing fileUrl, using placeholder');
+							fileUrl = 'https://via.placeholder.com/800x600?text=No+Image';
+							thumbnailUrl = thumbnailUrl || fileUrl;
+						}
 					}
 				} catch (error) {
 					console.error('Error uploading file:', error);
 					showErrorToast('Failed to upload file');
-					setLoading(false);
-					return;
+					// If we don't have a fileUrl, use placeholder
+					if (!fileUrl) {
+						fileUrl = 'https://via.placeholder.com/800x600?text=No+Image';
+						thumbnailUrl = thumbnailUrl || fileUrl;
+					}
 				}
+			} else if (!fileUrl) {
+				// If no file URL exists and no new file is uploaded, use placeholder
+				fileUrl = 'https://via.placeholder.com/800x600?text=No+Image';
+				thumbnailUrl = thumbnailUrl || fileUrl;
 			}
 			
-			// Prepare content data
+			// Prepare content data - ALWAYS include fileUrl
 			const contentData = {
-				type: contentForm.type,
+				type: contentForm.type === 'gallery-category' ? 'gallery' : contentForm.type,
 				title: contentForm.title,
 				description: contentForm.description || '',
-				fileUrl: fileUrl,
-				thumbnailUrl: thumbnailUrl,
-				category: contentForm.category || '',
+				fileUrl: fileUrl, // Always provide a fileUrl
+				thumbnailUrl: thumbnailUrl || fileUrl, // Use fileUrl as fallback
+				category: contentForm.type === 'gallery-category' ? 'category' : (contentForm.category || ''),
 			};
 			
 			console.log('Updating content with data:', contentData);
 			
-			await api.admin.updateContent(editingContent._id, contentData);
+			const updateResponse = await api.admin.updateContent(editingContent._id, contentData);
+			console.log('Update response:', updateResponse);
+			
 			showSuccessToast('Content updated successfully!');
 			
-			// Reset form and refresh content list
+			// Reset form
 			handleCancelEditContent();
 			
-			// Refresh content list
-			const response = await (contentType === 'all' 
-				? api.admin.getAllContent()
-				: api.admin.getContentByType(contentType));
-			setContentList(response || []);
+			// Force refresh content list
+			setRefreshTrigger(prev => prev + 1);
 			
 			// Refresh gallery categories if needed
-			if (contentForm.type === 'gallery' || contentType === 'gallery' || contentType === 'all') {
-				const galleryContent = await api.admin.getContentByType('gallery');
-				setGalleryCategories(galleryContent?.filter(item => item.category === 'category') || []);
+			if (contentForm.type === 'gallery-category' || contentForm.type === 'gallery' || contentType === 'gallery' || contentType === 'all') {
+				try {
+					const galleryResponse = await api.admin.getContentByType('gallery');
+					console.log('Gallery refresh response:', galleryResponse);
+					
+					const galleryContent = galleryResponse?.data || galleryResponse || [];
+					const categories = galleryContent.filter(item => item.category === 'category') || [];
+					
+					console.log('Updated gallery categories:', categories);
+					setGalleryCategories(categories);
+				} catch (error) {
+					console.error('Error refreshing gallery categories:', error);
+				}
 			}
 		} catch (error) {
 			console.error('Error updating content:', error);
-			showErrorToast('Failed to update content. Please try again.');
+			showErrorToast('Failed to update content: ' + (error.response?.data?.error || error.message));
 		} finally {
 			setLoading(false);
 		}
@@ -875,7 +1006,7 @@ const AdminDashboard = () => {
 			if (contentForm.file) {
 				const formData = new FormData();
 				formData.append('file', contentForm.file);
-				formData.append('type', 'image');
+				formData.append('type', 'gallery');
 				
 				try {
 					console.log('Uploading gallery category image...');
@@ -883,30 +1014,34 @@ const AdminDashboard = () => {
 					console.log('File upload response:', response);
 					if (response.success) {
 						fileUrl = response.data.fileUrl;
-						thumbnailUrl = response.data.fileUrl; // Use same URL for thumbnail
-						console.log('File uploaded successfully:', fileUrl);
+						thumbnailUrl = response.data.fileUrl;
 					}
 				} catch (error) {
 					console.error('Error uploading file:', error);
-					showErrorToast('Failed to upload file');
-					setLoading(false);
-					return;
+					// Don't return, just use placeholder image
+					fileUrl = 'https://via.placeholder.com/800x600?text=Gallery+Category';
+					thumbnailUrl = fileUrl;
 				}
+			} else {
+				fileUrl = 'https://via.placeholder.com/800x600?text=Gallery+Category';
+				thumbnailUrl = fileUrl;
 			}
 			
+			// Prepare category data
 			const categoryData = {
 				type: 'gallery',
 				title: contentForm.title,
 				description: contentForm.description || '',
 				fileUrl: fileUrl,
 				thumbnailUrl: thumbnailUrl,
-				category: 'category',
+				category: 'category', // This identifies it as a category
 			};
 			
 			console.log('Adding gallery category with data:', categoryData);
 			
+			// Add the category
 			const response = await api.admin.addContent(categoryData);
-			console.log('Gallery category response:', response);
+			console.log('Gallery category add response:', response);
 			
 			showSuccessToast("Gallery category added successfully");
 			
@@ -920,12 +1055,18 @@ const AdminDashboard = () => {
 				filePreview: null,
 			});
 			
+			// Force refresh content list
+			setRefreshTrigger(prev => prev + 1);
+			
 			// Refresh gallery categories
-			const galleryContent = await api.admin.getContentByType('gallery');
-			setGalleryCategories(galleryContent?.filter(item => item.category === 'category') || []);
+			const galleryResponse = await api.admin.getContentByType('gallery');
+			const galleryContent = galleryResponse?.data || galleryResponse || [];
+			const categories = galleryContent.filter(item => item.category === 'category') || [];
+			setGalleryCategories(categories);
+			
 		} catch (error) {
 			console.error('Error adding gallery category:', error);
-			showErrorToast('Failed to add gallery category. Please try again.');
+			showErrorToast('Failed to add gallery category: ' + (error.response?.data?.error || error.message));
 		} finally {
 			setLoading(false);
 		}
@@ -934,6 +1075,8 @@ const AdminDashboard = () => {
 	const handleContentFileChange = (e) => {
 		if (e.target.files && e.target.files[0]) {
 			const file = e.target.files[0];
+			
+			// Set file and preview in form
 			setContentForm({
 				...contentForm,
 				file: file,
@@ -943,7 +1086,7 @@ const AdminDashboard = () => {
 	};
 
 	return (
-		<Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+		<Container maxWidth="xl" sx={{ py: 4 }}>
 			<Typography variant="h4" gutterBottom>
 				Admin Dashboard
 			</Typography>
@@ -953,15 +1096,16 @@ const AdminDashboard = () => {
 				onChange={(e, newValue) => setTab(newValue)}
 				variant="scrollable"
 				scrollButtons="auto"
-				sx={{ mb: 3 }}
+				sx={{ mb: 4 }}
 			>
-				<Tab label="Content Management" />
-				<Tab label="User Management" />
-				<Tab label="Course Management" />
-				<Tab label="Admission Management" />
-				<Tab label="Testimonial Management" />
-				<Tab label="Payment Management" />
-				<Tab icon={<CardMembershipIcon />} label="ID Card Generator" />
+				<Tab label="Content" />
+				<Tab label="Users" />
+				<Tab label="Courses" />
+				<Tab label="Admissions" />
+				<Tab label="Testimonials" />
+				<Tab label="Payments" />
+				<Tab label="ID Cards" />
+				<Tab label="Results" />
 			</Tabs>
 
 			{loading ? (
@@ -989,10 +1133,18 @@ const AdminDashboard = () => {
 											>
 												<MenuItem value="all">All Content</MenuItem>
 												<MenuItem value="announcement">Announcements</MenuItem>
-												<MenuItem value="event">Events</MenuItem>
-												<MenuItem value="gallery">Gallery</MenuItem>
-												<MenuItem value="gallery-category">Gallery Category</MenuItem>
 												<MenuItem value="news">News</MenuItem>
+												<MenuItem value="event">Events</MenuItem>
+												<Divider sx={{ my: 1 }} />
+												<MenuItem sx={{ 
+													backgroundColor: 'rgba(0, 0, 0, 0.05)', 
+													fontWeight: 'bold',
+													pointerEvents: 'none' 
+												}}>
+													Gallery Management
+												</MenuItem>
+												<MenuItem value="gallery">Gallery Items</MenuItem>
+												<Divider sx={{ my: 1 }} />
 												<MenuItem value="about">Testimonials</MenuItem>
 											</Select>
 										</FormControl>
@@ -1114,14 +1266,33 @@ const AdminDashboard = () => {
 												error={!contentForm.type}
 											>
 												<MenuItem value="announcement">Announcement</MenuItem>
-												<MenuItem value="event">Event</MenuItem>
-												<MenuItem value="gallery">Gallery</MenuItem>
-												<MenuItem value="gallery-category">Gallery Category</MenuItem>
 												<MenuItem value="news">News</MenuItem>
+												<MenuItem value="event">Event</MenuItem>
+												<Divider sx={{ my: 1 }} />
+												<MenuItem sx={{ 
+													backgroundColor: 'rgba(0, 0, 0, 0.05)', 
+													fontWeight: 'bold',
+													pointerEvents: 'none' 
+												}}>
+													Gallery Management
+												</MenuItem>
+												<MenuItem value="gallery-category">Gallery Category</MenuItem>
+												<MenuItem value="gallery">Gallery Item</MenuItem>
+												<Divider sx={{ my: 1 }} />
 												<MenuItem value="about">Testimonial</MenuItem>
 											</Select>
 											{!contentForm.type && (
 												<FormHelperText error>Content type is required</FormHelperText>
+											)}
+											{contentForm.type === 'gallery-category' && (
+												<FormHelperText>
+													Create a gallery category first, then add gallery items to it.
+												</FormHelperText>
+											)}
+											{contentForm.type === 'gallery' && (
+												<FormHelperText>
+													Add a gallery item to an existing category.
+												</FormHelperText>
 											)}
 										</FormControl>
 										
@@ -1133,8 +1304,9 @@ const AdminDashboard = () => {
 													onChange={(e) => setSelectedGalleryCategory(e.target.value)}
 													label="Gallery Category"
 													required
+													error={!selectedGalleryCategory}
 												>
-													{galleryCategories.length > 0 ? (
+													{galleryCategories && galleryCategories.length > 0 ? (
 														galleryCategories.map((category) => (
 															<MenuItem key={category._id} value={category._id}>
 																{category.title}
@@ -1142,12 +1314,14 @@ const AdminDashboard = () => {
 														))
 													) : (
 														<MenuItem disabled value="">
-															No categories available. Please create one first.
+															No categories available. Please create a Gallery Category first.
 														</MenuItem>
 													)}
 												</Select>
 												<FormHelperText>
-													Select a category for this gallery item
+													{galleryCategories && galleryCategories.length > 0 
+														? 'Select a category for this gallery item' 
+														: 'Use the "Gallery Category" content type to create categories first'}
 												</FormHelperText>
 											</FormControl>
 										)}
@@ -1893,6 +2067,13 @@ const AdminDashboard = () => {
 								courses={courses}
 							/>
 						</Paper>
+					)}
+
+					{tab === 7 && (
+						<ResultsManagement 
+							students={users.students} 
+							courses={courses}
+						/>
 					)}
 				</>
 			)}

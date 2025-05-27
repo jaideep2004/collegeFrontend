@@ -25,6 +25,8 @@ import {
 	ListItemText,
 	FormControlLabel,
 	Checkbox,
+	TableContainer,
+	Alert,
 } from "@mui/material";
 import api from "../services/api";
 import {
@@ -43,7 +45,7 @@ import FeedbackIcon from '@mui/icons-material/Feedback';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 const StudentDashboard = () => {
-	const [tab, setTab] = useState(0);
+	const [activeTab, setActiveTab] = useState('Results');
 	const [results, setResults] = useState([]);
 	const [documents, setDocuments] = useState([]);
 	const [courseId, setCourseId] = useState("");
@@ -66,6 +68,7 @@ const StudentDashboard = () => {
 	});
 	const [editMode, setEditMode] = useState(false);
 	const [registeredCourses, setRegisteredCourses] = useState([]);
+	const [error, setError] = useState('');
 
 	useEffect(() => {
 		const fetchProfile = async () => {
@@ -91,11 +94,15 @@ const StudentDashboard = () => {
 	}, []);
 
 	useEffect(() => {
-		if (tab === 3) {
+		if (activeTab === 'Results') {
+			fetchResults();
+		} else if (activeTab === 'Documents') {
+			fetchDocuments();
+		} else if (activeTab === 'Courses') {
+			fetchRegisteredCourses();
+		} else if (activeTab === 'Payments') {
 			fetchPaymentHistory();
-		} else if (tab === 4) {
-			fetchAdmissions();
-		} else if (tab === 5) {
+		} else if (activeTab === 'Profile') {
 			if (profile) {
 				setProfileData({
 					name: profile.name || "",
@@ -109,33 +116,31 @@ const StudentDashboard = () => {
 					pinCode: profile.pinCode || "",
 				});
 			}
-		} else if (tab === 2) {
-			fetchRegisteredCourses();
 		}
-	}, [tab, profile]);
+	}, [activeTab, profile]);
 
-	const handleResults = async () => {
+	const fetchResults = async () => {
+		setLoading(true);
 		try {
-			setLoading(true);
 			const response = await api.student.getResults();
 			setResults(response.data || []);
-			if (response.data.length === 0) {
-				showInfoToast("No results found");
-			}
-		} catch (error) {
-			// Error is already handled by the API interceptor
+			setError('');
+		} catch (err) {
+			console.error('Error fetching results:', err);
+			setError('Failed to fetch results');
+			setResults([]);
 		} finally {
 			setLoading(false);
 		}
 	};
 
-	const handleDocuments = async (type) => {
+	const fetchDocuments = async () => {
 		try {
 			setLoading(true);
-			const response = await api.student.getDocuments(type);
+			const response = await api.student.getDocuments("syllabus");
 			setDocuments(response.data || []);
 			if (response.data.length === 0) {
-				showInfoToast(`No ${type} documents found`);
+				showInfoToast("No syllabus documents found");
 			}
 		} catch (error) {
 			// Error is already handled by the API interceptor
@@ -286,6 +291,57 @@ const StudentDashboard = () => {
 		} finally {
 			setLoading(false);
 		}
+	};
+
+	const renderResults = () => {
+		if (loading) {
+			return (
+				<Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+					<CircularProgress />
+				</Box>
+			);
+		}
+
+		if (error) {
+			return (
+				<Alert severity="error" sx={{ mt: 2 }}>
+					{error}
+				</Alert>
+			);
+		}
+
+		if (results.length === 0) {
+			return (
+				<Alert severity="info" sx={{ mt: 2 }}>
+					No results found
+				</Alert>
+			);
+		}
+
+		return (
+			<TableContainer component={Paper} sx={{ mt: 2 }}>
+				<Table>
+					<TableHead>
+						<TableRow>
+							<TableCell><strong>Course</strong></TableCell>
+							<TableCell><strong>Semester</strong></TableCell>
+							<TableCell><strong>Marks</strong></TableCell>
+							<TableCell><strong>Grade</strong></TableCell>
+						</TableRow>
+					</TableHead>
+					<TableBody>
+						{results.map((result) => (
+							<TableRow key={result._id}>
+								<TableCell>{result.courseId?.name || 'Unknown Course'}</TableCell>
+								<TableCell>{result.semester}</TableCell>
+								<TableCell>{result.marks}</TableCell>
+								<TableCell>{result.grade}</TableCell>
+							</TableRow>
+						))}
+					</TableBody>
+				</Table>
+			</TableContainer>
+		);
 	};
 
 	const TestimonialTab = () => {
@@ -444,53 +500,35 @@ const StudentDashboard = () => {
 	};
 
 	return (
-		<Container>
-			<Typography variant='h4' gutterBottom sx={{ color: "#8A2BE2", mt: 4 }}>
+		<Container maxWidth="lg" sx={{ py: 4 }}>
+			<Typography variant="h4" gutterBottom>
 				Student Dashboard
 			</Typography>
-			{profile && (
-				<Typography variant='subtitle1' gutterBottom>
-					Welcome, {profile.name} ({profile.rollNumber})
-				</Typography>
-			)}
-			<Tabs value={tab} onChange={(e, val) => setTab(val)} sx={{ mb: 3 }}>
-				<Tab icon={<AssignmentIcon />} label='Results' />
-				<Tab icon={<DescriptionIcon />} label='Documents' />
-				<Tab icon={<SchoolIcon />} label='Courses' />
-				<Tab icon={<PaymentIcon />} label='Payments' />
-				<Tab icon={<ReceiptIcon />} label='Admissions' />
-				<Tab icon={<PersonIcon />} label='Profile' />
-				<Tab icon={<FeedbackIcon />} label='Testimonial' />
-			</Tabs>
-			{tab === 0 && (
-				<Box sx={{ mt: 2 }}>
-					<Button
-						variant='contained'
-						onClick={handleResults}
-						disabled={loading}
-						sx={{ mb: 2 }}>
-						{loading ? <CircularProgress size={24} /> : "Check Results"}
-					</Button>
 
-					{results.length > 0 ? (
-					<Table>
-						<TableBody>
-							{results.map((res) => (
-								<TableRow key={res._id}>
-										<TableCell>Semester {res.semester}</TableCell>
-										<TableCell>Total Marks: {res.totalMarks}</TableCell>
-								</TableRow>
-							))}
-						</TableBody>
-					</Table>
-					) : (
-						<Typography sx={{ mt: 2 }}>
-							Click the button to check your results
-						</Typography>
-					)}
+			<Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+				<Tabs
+					value={activeTab}
+					onChange={(e, newValue) => setActiveTab(newValue)}
+					aria-label="dashboard tabs"
+				>
+					<Tab label="Results" value="Results" />
+					<Tab label="Documents" value="Documents" />
+					<Tab label="Courses" value="Courses" />
+					<Tab label="Payments" value="Payments" />
+					<Tab label="Profile" value="Profile" />
+				</Tabs>
+			</Box>
+
+			{activeTab === 'Results' && (
+				<Box>
+					<Typography variant="h6" gutterBottom>
+						Academic Results
+					</Typography>
+					{renderResults()}
 				</Box>
 			)}
-			{tab === 1 && (
+			
+			{activeTab === 'Documents' && (
 				<Box sx={{ mt: 2 }}>
 					<Box sx={{ display: "flex", gap: 2, mb: 3 }}>
 						<Button
@@ -531,7 +569,7 @@ const StudentDashboard = () => {
 					)}
 				</Box>
 			)}
-			{tab === 2 && (
+			{activeTab === 'Courses' && (
 				<Box>
 					<Grid container spacing={3}>
 						<Grid item xs={12} md={6}>
@@ -635,7 +673,7 @@ const StudentDashboard = () => {
 					</Grid>
 				</Box>
 			)}
-			{tab === 3 && (
+			{activeTab === 'Payments' && (
 				<Paper sx={{ p: 3 }}>
 					<Typography variant='h6' gutterBottom>
 						Payment History
@@ -711,56 +749,7 @@ const StudentDashboard = () => {
 					)}
 				</Paper>
 			)}
-			{tab === 4 && (
-				<Paper sx={{ p: 3 }}>
-					<Typography variant='h6' gutterBottom>
-						Admission Applications
-					</Typography>
-					{loading ? (
-						<Box sx={{ display: "flex", justifyContent: "center", my: 4 }}>
-							<CircularProgress />
-						</Box>
-					) : admissions.length > 0 ? (
-						<Table>
-							<TableHead>
-								<TableRow>
-									<TableCell>Date</TableCell>
-									<TableCell>Course</TableCell>
-									<TableCell>Status</TableCell>
-								</TableRow>
-							</TableHead>
-							<TableBody>
-								{admissions.map((admission) => (
-									<TableRow key={admission._id}>
-										<TableCell>
-											{new Date(admission.createdAt).toLocaleDateString()}
-										</TableCell>
-										<TableCell>{admission.courseId?.name || "N/A"}</TableCell>
-										<TableCell>
-											<Chip
-												label={admission.status}
-												color={
-													admission.status === "approved"
-														? "success"
-														: admission.status === "pending"
-														? "warning"
-														: "error"
-												}
-												size='small'
-											/>
-										</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
-					) : (
-						<Typography align='center' sx={{ my: 4 }}>
-							No admission applications found
-						</Typography>
-					)}
-				</Paper>
-			)}
-			{tab === 5 && (
+			{activeTab === 'Profile' && (
 				<Paper sx={{ p: 3 }}>
 					<Box sx={{ display: "flex", justifyContent: "space-between", mb: 3 }}>
 						<Typography variant='h6'>Profile Information</Typography>
@@ -912,7 +901,7 @@ const StudentDashboard = () => {
 					</Grid>
 				</Paper>
 			)}
-			{tab === 6 && (
+			{activeTab === 'Testimonial' && (
 				<TestimonialTab />
 			)}
 		</Container>

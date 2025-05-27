@@ -121,70 +121,64 @@ const Gallery = () => {
 	const [selectedCategory, setSelectedCategory] = useState('all');
 	const [openDialog, setOpenDialog] = useState(false);
 	const [currentImage, setCurrentImage] = useState(null);
-	const [openUploadDialog, setOpenUploadDialog] = useState(false);
-	const [uploadForm, setUploadForm] = useState({
-		title: '',
-		category: '',
-		file: null,
-	});
-	const [uploading, setUploading] = useState(false);
+	const [page, setPage] = useState(1);
+	const imagesPerPage = 12;
 	const [snackbar, setSnackbar] = useState({
 		open: false,
 		message: '',
 		severity: 'success',
 	});
-	const [page, setPage] = useState(1);
-	const imagesPerPage = 12;
-	const [role, setRole] = useState(localStorage.getItem('role') || 'user');
 
 	useEffect(() => {
 		const fetchImages = async () => {
 			try {
 				setLoading(true);
 				
-				// Fetch gallery categories first
+				// First fetch gallery categories
 				const categoriesResponse = await api.public.getContentByType('gallery-category');
-				console.log('Gallery categories:', categoriesResponse);
+				console.log('Gallery categories response:', categoriesResponse);
 				
-				let galleryCategories = [];
+				let categoryData = [];
 				if (Array.isArray(categoriesResponse)) {
-					galleryCategories = categoriesResponse;
+					categoryData = categoriesResponse;
 				} else if (categoriesResponse?.data && Array.isArray(categoriesResponse.data)) {
-					galleryCategories = categoriesResponse.data;
+					categoryData = categoriesResponse.data;
+				}
+				
+				// Then fetch gallery items
+				const itemsResponse = await api.public.getGallery();
+				console.log('Gallery items response:', itemsResponse);
+				
+				let itemsData = [];
+				if (Array.isArray(itemsResponse)) {
+					itemsData = itemsResponse;
+				} else if (itemsResponse?.data && Array.isArray(itemsResponse.data)) {
+					itemsData = itemsResponse.data;
 				}
 				
 				// Set categories with 'All' as the first option
 				setCategories([
 					{ id: 'all', name: 'All' },
-					...galleryCategories.map(cat => ({ 
-						id: cat._id, 
+					...categoryData.map(cat => ({
+						id: cat._id,
 						name: cat.title,
 						thumbnail: cat.thumbnailUrl || cat.fileUrl
 					}))
 				]);
 				
-				// Fetch gallery images
-				const imagesResponse = await api.public.getContentByType('gallery');
-				console.log('Gallery images:', imagesResponse);
-				
-				let galleryImages = [];
-				if (Array.isArray(imagesResponse)) {
-					galleryImages = imagesResponse;
-				} else if (imagesResponse?.data && Array.isArray(imagesResponse.data)) {
-					galleryImages = imagesResponse.data;
-				}
-				
 				// Process images with category information
-				const processedImages = galleryImages.map(item => ({
+				const processedImages = itemsData.map(item => ({
 					id: item._id,
 					src: item.fileUrl,
 					thumbnail: item.thumbnailUrl || item.fileUrl,
 					title: item.title || 'Gallery Image',
 					description: item.description || '',
-					categoryId: item.category || 'uncategorized',
-					categoryName: galleryCategories.find(cat => cat._id === item.category)?.title || 'Uncategorized',
+					categoryId: item.category,
+					categoryName: categoryData.find(cat => cat._id === item.category)?.title || 'Uncategorized',
 					uploadedAt: item.uploadedAt
 				}));
+				
+				console.log('Processed images:', processedImages);
 				
 				setImages(processedImages);
 				setFilteredImages(processedImages);
@@ -240,130 +234,15 @@ const Gallery = () => {
 	};
 
 	const handlePrevImage = () => {
-		const currentIndex = filteredImages.findIndex(img => img._id === currentImage._id);
+		const currentIndex = filteredImages.findIndex(img => img.id === currentImage.id);
 		const prevIndex = (currentIndex - 1 + filteredImages.length) % filteredImages.length;
 		setCurrentImage(filteredImages[prevIndex]);
 	};
 
 	const handleNextImage = () => {
-		const currentIndex = filteredImages.findIndex(img => img._id === currentImage._id);
+		const currentIndex = filteredImages.findIndex(img => img.id === currentImage.id);
 		const nextIndex = (currentIndex + 1) % filteredImages.length;
 		setCurrentImage(filteredImages[nextIndex]);
-	};
-
-	const handleOpenUploadDialog = () => {
-		setOpenUploadDialog(true);
-	};
-
-	const handleCloseUploadDialog = () => {
-		setOpenUploadDialog(false);
-		setUploadForm({
-			title: '',
-			category: '',
-			file: null,
-		});
-	};
-
-	const handleUploadFormChange = (e) => {
-		const { name, value } = e.target;
-		setUploadForm(prev => ({
-			...prev,
-			[name]: value,
-		}));
-	};
-
-	const handleFileChange = (e) => {
-		if (e.target.files && e.target.files[0]) {
-			setUploadForm(prev => ({
-				...prev,
-				file: e.target.files[0],
-			}));
-		}
-	};
-
-	const handleUploadSubmit = async (e) => {
-		e.preventDefault();
-		
-		if (!uploadForm.file) {
-			setSnackbar({
-				open: true,
-				message: 'Please select a file to upload',
-				severity: 'error'
-			});
-			return;
-		}
-		
-		try {
-			setUploading(true);
-			
-			// Create FormData object
-			const formData = new FormData();
-			formData.append('file', uploadForm.file);
-			formData.append('type', 'gallery');
-			formData.append('title', uploadForm.category ? `${uploadForm.category} - ${uploadForm.title}` : uploadForm.title);
-			
-			// Upload the file
-			const response = await api.admin.uploadFile(formData);
-			
-			if (response) {
-				// Add the new content
-				await api.admin.addContent({
-					type: 'gallery',
-					title: uploadForm.category ? `${uploadForm.category} - ${uploadForm.title}` : uploadForm.title,
-					fileUrl: response.fileUrl,
-					thumbnailUrl: response.fileUrl, // Use same URL for thumbnail
-				});
-				
-				// Show success message
-				setSnackbar({
-					open: true,
-					message: 'Image uploaded successfully!',
-					severity: 'success'
-				});
-				
-				// Close dialog and reset form
-				setOpenUploadDialog(false);
-				setUploadForm({
-					title: '',
-					category: '',
-					file: null,
-				});
-				
-				// Refresh gallery
-				const galleryResponse = await api.public.getGallery();
-				
-				// Extract gallery data from response
-				const galleryData = galleryResponse?.data || [];
-				
-				if (Array.isArray(galleryData) && galleryData.length > 0) {
-					// Map the API data to the format needed for the gallery
-					const processedImages = galleryData.map(item => ({
-						id: item._id,
-						src: item.fileUrl,
-						thumbnail: item.thumbnailUrl || item.fileUrl,
-						title: item.title || 'Gallery Image',
-						description: item.description || '',
-						category: item.title ? item.title.split('-')[0].trim() : 'Uncategorized',
-						uploadedAt: item.uploadedAt
-					}));
-					
-					setImages(processedImages);
-					setFilteredImages(processedImages.filter(img => 
-						selectedCategory === 'all' || 
-						img.category === selectedCategory
-					));
-				}
-			}
-		} catch (error) {
-			console.error('Error uploading image:', error);
-			setSnackbar({
-				open: true,
-				message: 'Failed to upload image. Please try again.',
-				severity: 'error'
-			});
-		} finally {
-			setUploading(false);
-		}
 	};
 
 	const handleLoadMore = () => {
@@ -444,16 +323,6 @@ const Gallery = () => {
 										<Typography variant="h6" color="text.secondary">
 											No images found in this category.
 										</Typography>
-										{role === 'admin' && (
-											<Button
-												variant="contained"
-												startIcon={<AddPhotoAlternateIcon />}
-												onClick={handleOpenUploadDialog}
-												sx={{ mt: 2 }}
-											>
-												Add Images
-											</Button>
-										)}
 									</Box>
 								</Grid>
 							)}
@@ -468,21 +337,6 @@ const Gallery = () => {
 									onClick={handleLoadMore}
 								>
 									Load More
-								</Button>
-							</Box>
-						)}
-
-						{/* Upload Button (for admin) */}
-						{localStorage.getItem('role') === 'admin' && (
-							<Box sx={{ position: 'fixed', bottom: 30, right: 30 }}>
-								<Button
-									variant="contained"
-									color="primary"
-									startIcon={<AddPhotoAlternateIcon />}
-									onClick={handleOpenUploadDialog}
-									sx={{ borderRadius: 30, px: 3 }}
-								>
-									Add Photo
 								</Button>
 							</Box>
 						)}
@@ -519,7 +373,7 @@ const Gallery = () => {
 						<>
 							<Box
 								component="img"
-								src={currentImage.fileUrl || currentImage.thumbnailUrl || `/images/gallery/gallery1.jpg`}
+								src={currentImage.src}
 								alt={currentImage.title}
 								sx={{
 									width: '100%',
@@ -553,112 +407,6 @@ const Gallery = () => {
 							</Box>
 						</>
 					)}
-				</DialogContent>
-			</Dialog>
-
-			{/* Upload Dialog */}
-			<Dialog
-				open={openUploadDialog}
-				onClose={handleCloseUploadDialog}
-				maxWidth="sm"
-				fullWidth
-			>
-				<DialogContent>
-					<Typography variant="h6" gutterBottom>
-						Upload New Photo
-					</Typography>
-
-					<form onSubmit={handleUploadSubmit}>
-						<TextField
-							fullWidth
-							label="Title"
-							name="title"
-							value={uploadForm.title}
-							onChange={handleUploadFormChange}
-							margin="normal"
-							required
-						/>
-
-						<FormControl fullWidth margin="normal" required>
-							<InputLabel>Category</InputLabel>
-							<Select
-								name="category"
-								value={uploadForm.category}
-								onChange={handleUploadFormChange}
-								label="Category"
-							>
-								{categories
-									.filter(cat => cat.id !== 'all')
-									.map(category => (
-										<MenuItem key={category.id} value={category.id}>
-											{category.name}
-										</MenuItem>
-									))}
-							</Select>
-						</FormControl>
-
-						<Box
-							sx={{
-								border: '2px dashed',
-								borderColor: 'divider',
-								borderRadius: 1,
-								p: 3,
-								mt: 2,
-								textAlign: 'center',
-							}}
-						>
-							{uploadForm.file ? (
-								<Box>
-									<Typography variant="body2" gutterBottom>
-										{uploadForm.file.name}
-									</Typography>
-									<Button
-										size="small"
-										onClick={() => setUploadForm(prev => ({ ...prev, file: null }))}
-									>
-										Remove
-									</Button>
-								</Box>
-							) : (
-								<>
-									<input
-										accept="image/*"
-										id="upload-image"
-										type="file"
-										onChange={handleFileChange}
-										style={{ display: 'none' }}
-									/>
-									<label htmlFor="upload-image">
-										<Button
-											component="span"
-											startIcon={<CloudUploadIcon />}
-										>
-											Select Image
-										</Button>
-									</label>
-									<Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-										Drag and drop or click to select
-									</Typography>
-								</>
-							)}
-						</Box>
-
-						<Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
-							<Button
-								onClick={handleCloseUploadDialog}
-								sx={{ mr: 1 }}
-							>
-								Cancel
-							</Button>
-							<UploadButton
-								type="submit"
-								variant="contained"
-								disabled={uploading || !uploadForm.title || !uploadForm.category || !uploadForm.file}
-							>
-								{uploading ? <CircularProgress size={24} /> : 'Upload'}
-							</UploadButton>
-						</Box>
-					</form>
 				</DialogContent>
 			</Dialog>
 

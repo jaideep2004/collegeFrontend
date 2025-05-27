@@ -3,7 +3,7 @@ import { showErrorToast } from "../utils/toast";
 
 // Create axios instance with base URL
 const API = axios.create({
-	baseURL: "https://collegebackend-hz0b.onrender.com/api",
+	baseURL: "http://localhost:5000/api",
 	timeout: 10000,
 	headers: { "Content-Type": "application/json" },
 });
@@ -30,7 +30,7 @@ const pingServer = async () => {
 };
 
 // Initial ping when the app starts
-pingServer();
+pingServer(); 
 
 // Ping every 14 minutes (840000 milliseconds)
 const pingInterval = setInterval(pingServer, 820000);
@@ -121,11 +121,46 @@ export const studentAPI = {
 // Admin API
 export const adminAPI = {
 	// Content Management
-	getAllContent: () => API.get("/admin/content"),
+	getAllContent: (params = {}) => {
+		// Convert params object to query string
+		const queryParams = new URLSearchParams();
+		if (params.type) queryParams.append('type', params.type);
+		if (params.page) queryParams.append('page', params.page);
+		if (params.limit) queryParams.append('limit', params.limit);
+		if (params.search) queryParams.append('search', params.search);
+		
+		const queryString = queryParams.toString();
+		const url = queryString ? `/admin/content?${queryString}` : '/admin/content';
+		
+		console.log('Fetching content with URL:', url);
+		return API.get(url);
+	},
 	getContentByType: (type) => API.get(`/admin/content/type/${type}`),
 	getContentById: (id) => API.get(`/admin/content/${id}`),
-	addContent: (data) => API.post("/admin/content", data),
-	updateContent: (id, data) => API.put(`/admin/content/${id}`, data),
+	addContent: (data) => {
+		// Ensure fileUrl is always set to prevent validation errors
+		const contentData = { ...data };
+		if (!contentData.fileUrl) {
+			contentData.fileUrl = 'https://via.placeholder.com/800x600?text=No+Image';
+		}
+		if (!contentData.thumbnailUrl) {
+			contentData.thumbnailUrl = contentData.fileUrl;
+		}
+		console.log('Adding content with guaranteed fileUrl:', contentData);
+		return API.post("/admin/content", contentData);
+	},
+	updateContent: (id, data) => {
+		// Ensure fileUrl is always set for updates too
+		const contentData = { ...data };
+		if (!contentData.fileUrl) {
+			contentData.fileUrl = 'https://via.placeholder.com/800x600?text=No+Image';
+		}
+		if (!contentData.thumbnailUrl) {
+			contentData.thumbnailUrl = contentData.fileUrl;
+		}
+		console.log('Updating content with guaranteed fileUrl:', contentData);
+		return API.put(`/admin/content/${id}`, contentData);
+	},
 	deleteContent: (id) => API.delete(`/admin/content/${id}`),
 
 	// User Management
@@ -154,7 +189,22 @@ export const adminAPI = {
 	updateAdmission: (id, data) => API.put(`/admin/admissions/${id}`, data),
 
 	// Result Management
-	uploadResults: (data) => API.post("/admin/results", data),
+	uploadResults: (formData) => API.post("/admin/results/upload", formData),
+	addResult: (data) => API.post("/admin/results", data),
+	getResults: (params) => {
+		const queryParams = new URLSearchParams();
+		if (params?.studentId) queryParams.append('studentId', params.studentId);
+		if (params?.courseId) queryParams.append('courseId', params.courseId);
+		if (params?.semester) queryParams.append('semester', params.semester);
+		
+		const queryString = queryParams.toString();
+		const url = queryString ? `/admin/results?${queryString}` : '/admin/results';
+		
+		return API.get(url);
+	},
+	updateResult: (id, data) => API.put(`/admin/results/${id}`, data),
+	deleteResult: (id) => API.delete(`/admin/results/${id}`),
+	downloadResultTemplate: () => API.get('/admin/results/template', { responseType: 'blob' }),
 
 	// Payment Management
 	getPayments: () => API.get("/admin/payments"),
